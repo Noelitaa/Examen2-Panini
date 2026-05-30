@@ -1,0 +1,314 @@
+openapi: 3.0.3
+info:
+  title: Panini Support API
+  description: REST API for the Panini FIFA World Cup 2026 internal support ticket system.
+  version: 1.0.0
+  contact:
+    name: Panini Mobile Team
+
+servers:
+  - url: http://api.paninisupport.internal/api
+    description: Internal production server
+
+tags:
+  - name: auth
+    description: Authentication
+  - name: tickets
+    description: Support ticket management
+
+paths:
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Authenticate a support agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: agent@panini.cr
+              password: securePass123
+      responses:
+        '200':
+          description: Successful authentication
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tickets:
+    get:
+      tags: [tickets]
+      summary: List all support tickets
+      description: Returns all tickets sorted by priority (CRITICAL first).
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of tickets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TicketDto'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [tickets]
+      summary: Create a new support ticket
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTicketRequest'
+            example:
+              title: "Faltante de sobres — Zona Sur"
+              description: "500 sobres Serie A no llegaron al punto de venta de Pérez Zeledón."
+              priority: HIGH
+              provider: "LogiDistrib CR"
+              category: INVENTORY
+      responses:
+        '201':
+          description: Ticket created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketDto'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /tickets/{id}:
+    get:
+      tags: [tickets]
+      summary: Get ticket by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ticket found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketDto'
+        '404':
+          description: Ticket not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /tickets/{id}/status:
+    patch:
+      tags: [tickets]
+      summary: Update ticket status
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStatusRequest'
+            example:
+              status: IN_PROGRESS
+      responses:
+        '204':
+          description: Status updated
+        '400':
+          description: Invalid status value
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Ticket not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /tickets/{id}/priority:
+    patch:
+      tags: [tickets]
+      summary: Update ticket priority
+      description: Restricted to team leads in production. Controlled via Feature Flag on the mobile side.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePriorityRequest'
+            example:
+              priority: CRITICAL
+      responses:
+        '204':
+          description: Priority updated
+        '400':
+          description: Invalid priority value
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Ticket not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 4
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT bearer token
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [SUPPORT_AGENT, TEAM_LEAD, ADMIN]
+
+    TicketDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 120
+        description:
+          type: string
+        priority:
+          type: string
+          enum: [CRITICAL, HIGH, MEDIUM, LOW]
+        status:
+          type: string
+          enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED]
+        provider:
+          type: string
+        category:
+          type: string
+          enum: [DISTRIBUTION, INVENTORY, LOGISTICS, QUALITY, PROVIDER]
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateTicketRequest:
+      type: object
+      required: [title, description, priority, provider, category]
+      properties:
+        title:
+          type: string
+          maxLength: 120
+        description:
+          type: string
+        priority:
+          type: string
+          enum: [CRITICAL, HIGH, MEDIUM, LOW]
+        provider:
+          type: string
+        category:
+          type: string
+          enum: [DISTRIBUTION, INVENTORY, LOGISTICS, QUALITY, PROVIDER]
+
+    UpdateStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED]
+
+    UpdatePriorityRequest:
+      type: object
+      required: [priority]
+      properties:
+        priority:
+          type: string
+          enum: [CRITICAL, HIGH, MEDIUM, LOW]
+
+    ErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        statusCode:
+          type: integer
