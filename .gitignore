@@ -10,5 +10,3 @@ local.properties
 # macOS
 .DS_Store
 
-# Reference project (professor's guide — not part of submission)
-app/unaroom-android/
