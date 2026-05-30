@@ -13,7 +13,7 @@ object FeatureFlags {
      * Controls whether agents can open the "Create Ticket" form.
      * Disable during read-only support windows or while the creation API is unavailable.
      */
-    const val CREATE_TICKET_ENABLED = true
+    const val CREATE_TICKET_ENABLED = false
 
     /**
      * Controls whether agents can change a ticket's priority from the detail screen.
