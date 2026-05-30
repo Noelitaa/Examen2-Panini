@@ -1,181 +1,175 @@
-# Technical Architecture — Panini Support PoC
+# Arquitectura Técnica — Prueba de Concepto de Soporte Panini
 
-## 1. Overview
+## 1. Descripción general
 
-Panini Support is an Android proof-of-concept for managing internal support tickets related to the FIFA World Cup 2026 album distribution. The app is built with Jetpack Compose, MVVM, and a layered architecture designed for fast iteration and easy handoff to other engineers.
+Panini Support es una prueba de concepto para Android que gestiona tickets de soporte interno relacionados con la distribución de álbumes de la Copa Mundial de la FIFA 2026. La aplicación está desarrollada con Jetpack Compose, MVVM y una arquitectura en capas diseñada para una iteración rápida y una fácil transferencia a otros ingenieros.
 
----
+--
 
-## 2. Architecture: MVVM + Layered
+## 2. Arquitectura: MVVM + Capas
 
-```
-UI Layer       →  Composable screens + ViewModels (observe StateFlow)
-Domain Layer   →  TicketEventBus (event-based communication)
-Data Layer     →  Repositories → Mock data / future API
-Network Layer  →  Retrofit + OkHttp (wired, backend-ready)
-```
+Capa de interfaz de usuario → Pantallas componibles + ViewModels (observación de StateFlow)
+Capa de dominio → TicketEventBus (comunicación basada en eventos)
+Capa de datos → Repositorios → Datos simulados / futura API
+Capa de red → Retrofit + OkHttp (cableado, listo para el backend)
 
-The layers are separated so that swapping the data source (mock → real backend) requires changing only `AppContainer.kt` — nothing in the UI or ViewModel needs to change.
+Las capas están separadas de tal manera que cambiar la fuente de datos (simulado → backend real) solo requiere modificar `AppContainer.kt`; no es necesario cambiar nada en la interfaz de usuario ni en el ViewModel.
 
 ---
-
-## 3. Package Structure
+## 3. Estructura del paquete
 
 ```
 com.moviles.paninisupport/
-├── core/           AppConstants, UserMessages
+├── core/ AppConstants, UserMessages
 ├── data/
-│   ├── mock/       MockData — realistic Panini/FIFA 2026 data
-│   ├── remote/     RetrofitClient, ApiService, DTOs
-│   └── repository/ ApiResult, TicketRepository (interface + mock impl), AuthRepository
-├── domain/         TicketEventBus — reactive event communication
-├── features/       FeatureFlags
-├── navigation/     AppDestinations, AppNavHost
+│ ├── mock/ MockData — datos realistas de Panini/FIFA 2026
+│ ├── remote/ RetrofitClient, ApiService, DTOs
+│ └── repository/ ApiResult, TicketRepository (interfaz + implementación simulada), AuthRepository
+├── domain/ TicketEventBus — comunicación reactiva de eventos
+├── features/ FeatureFlags
+├── navigation/ AppDestinations, AppNavHost
 └── ui/
-    ├── components/ PriorityBadge, StatusBadge, TicketCard
-    ├── screens/    login/, tickets/, detail/, create/
-    └── theme/      Colors, Typography, Theme
+
+├── components/ PriorityBadge, StatusBadge, TicketCard
+
+├── pantallas/ inicio de sesión/, tickets/, detalle/, crear/
+
+└── tema/ Colores, tipografía, tema
 ```
 
 ---
 
-## 4. Event-Based Communication (TicketEventBus)
+## 4. Comunicación basada en eventos (TicketEventBus)
 
-### Why SharedFlow?
+### ¿Por qué SharedFlow?
 
-The list screen and the detail screen are independent composables managed by the NavHost. To keep them in sync without full reloads, the app uses a `SharedFlow`-based event bus.
+La pantalla de lista y la pantalla de detalles son componentes independientes gestionadas por NavHost. Para mantenerlas sincronizadas sin recargas completas, la aplicación utiliza un bus de eventos basado en `SharedFlow`.
 
-### How it works
+### Cómo funciona
 
-```
 CreateTicketScreen
-  └─ CreateTicketViewModel.createTicket()
-        └─ TicketEventBus.publish(TicketEvent.TicketCreated(ticket))
-              └─ TicketListViewModel.observeEvents()  ← receives the event
-                    └─ adds ticket to list, re-sorts by priority
-                          └─ StateFlow update → LazyColumn re-renders automatically
-```
 
-The same pattern applies to priority changes and status changes:
+└─ CreateTicketViewModel.createTicket()
 
-```
+└─ TicketEventBus.publish(TicketEvent.TicketCreated(ticket))
+
+└─ TicketListViewModel.observeEvents() ← recibe el evento
+
+└─ agrega el ticket a la lista, reordena por prioridad
+
+└─ Actualización de StateFlow → LazyColumn se vuelve a renderizar automáticamente
+
+El mismo patrón se aplica a los cambios de prioridad y estado:
+
 TicketDetailViewModel.updatePriority()
-  └─ TicketEventBus.publish(TicketEvent.PriorityChanged(id, newPriority))
-        └─ TicketListViewModel receives event
-              └─ updates ticket in list, re-sorts by priority order
-                    └─ CRITICAL → HIGH → MEDIUM → LOW
+
+└─ TicketEventBus.publish(TicketEvent.PriorityChanged(id, newPriority))
+
+└─ TicketListViewModel recibe el evento
+
+└─ actualiza el ticket en la lista Reordena por orden de prioridad
+
+└─ CRÍTICO → ALTO → MEDIO → BAJO
 ```
 
-### Events defined
+### Eventos definidos
 
-| Event | Trigger | Effect on list |
+| Evento | Disparador | Efecto en la lista |
+
 |---|---|---|
-| `TicketCreated` | New ticket saved | Added to list, sorted by priority |
-| `PriorityChanged` | Priority updated in detail | Ticket re-positioned in list |
-| `StatusChanged` | Status updated in detail | Status badge updates in-place |
 
-### Technical notes
+| `TicketCreated` | Nuevo ticket guardado | Añadido a la lista, ordenado por prioridad |
 
-- `extraBufferCapacity = 10` prevents event loss if the collector is momentarily slow.
-- `tryEmit()` is non-suspending, safe to call from any coroutine scope.
-- The `TicketListViewModel` subscribes to the event bus in its `init` block and keeps the subscription alive for the lifetime of the ViewModel.
+| `PriorityChanged` | Prioridad actualizada | Ticket reposicionado en la lista |
+
+| `StatusChanged` | Estado actualizado | La insignia de estado se actualiza en su lugar |
+
+### Notas técnicas
+
+- `extraBufferCapacity = 10` evita la pérdida de eventos si el recolector se ralentiza momentáneamente.
+
+- `tryEmit()` no suspende la ejecución, por lo que se puede llamar de forma segura desde cualquier ámbito de corrutina.
+
+- El `TicketListViewModel` se suscribe al bus de eventos en su bloque `init` y mantiene la suscripción activa durante toda la vida útil del ViewModel.
 
 ---
 
-## 5. Feature Flags
+## 5. Indicadores de características
 
-Feature flags are defined in `FeatureFlags.kt` as compile-time boolean constants.
+Los indicadores de características se definen en `FeatureFlags.kt` como constantes booleanas en tiempo de compilación.
 
 ```kotlin
 object FeatureFlags {
-    const val CREATE_TICKET_ENABLED = true   // shows/hides the FAB
-    const val PRIORITY_UPDATE_ENABLED = true // shows/hides priority dropdown in detail
+
+const val CREATE_TICKET_ENABLED = true // muestra/oculta el FAB
+
+const val PRIORITY_UPDATE_ENABLED = true // muestra/oculta el menú desplegable de prioridad en la pantalla de detalles
 }
 ```
 
-### Flags in use
+### Indicadores en uso
 
-| Flag | When `false` |
+| Indicador | Cuándo `false` |
+
 |---|---|
-| `CREATE_TICKET_ENABLED` | FAB is hidden; agents cannot open the creation form |
-| `PRIORITY_UPDATE_ENABLED` | Priority dropdown is hidden in the detail screen |
 
-### How to evolve
+| `CREATE_TICKET_ENABLED` | El FAB está oculto; los agentes no pueden abrir el formulario de creación |
 
-In a production system, replace the constant values with calls to Firebase Remote Config or a custom backend:
+| `PRIORITY_UPDATE_ENABLED` | El menú desplegable de prioridad está oculto en la pantalla de detalles |
+
+### Cómo evolucionar
+
+En un sistema de producción, reemplace los valores constantes con llamadas a Firebase Remote Config o un backend personalizado:
 
 ```kotlin
 object FeatureFlags {
-    val CREATE_TICKET_ENABLED: Boolean
-        get() = RemoteConfig.getBoolean("create_ticket_enabled")
+
+val CREATE_TICKET_ENABLED: Boolean
+
+get() = RemoteConfig.getBoolean("create_ticket_enabled")
 }
 ```
 
-No other file needs to change because all flag usage is already mediated through `FeatureFlags`.
+No es necesario modificar ningún otro archivo, ya que el uso de todos los flags se gestiona mediante `FeatureFlags`.
 
----
+--
 
-## 6. Networking Layer
+## 6. Capa de red
 
-Retrofit is fully wired even though the PoC uses mock data. The networking contracts are defined in:
+Retrofit está completamente configurado, aunque la prueba de concepto utiliza datos simulados. Los contratos de red se definen en:
 
-- `ApiService.kt` — Retrofit interface with all endpoints
-- `RetrofitClient.kt` — OkHttp + Retrofit singleton
-- `AppContainer.kt` — dependency wiring point
+- `ApiService.kt` — Interfaz Retrofit con todos los endpoints
+- `RetrofitClient.kt` — Singleton de OkHttp + Retrofit
+- `AppContainer.kt` — Punto de conexión de dependencias
 
-### Switching to a real backend
+### Cambio a un backend real
 
-Change one line in `AppContainer.kt`:
+Modificar una línea en `AppContainer.kt`:
 
 ```kotlin
-// Before (mock)
+// Antes (simulador)
 val ticketRepository: TicketRepository = MockTicketRepository()
 
-// After (real backend)
+// Después (backend real)
 val ticketRepository: TicketRepository = RemoteTicketRepository(RetrofitClient.apiService)
 ```
 
-`RemoteTicketRepository` would implement the same `TicketRepository` interface and call `ApiService` methods — no ViewModel or screen code changes needed.
+`RemoteTicketRepository` implementaría la misma interfaz `TicketRepository` y llamaría a los métodos de `ApiService`; no se requieren cambios en el ViewModel ni en el código de la pantalla.
 
----
+--
 
-## 7. State Management
+## 7. Gestión de estado
 
-Each screen has a corresponding `UiState` data class:
+Cada pantalla tiene una clase de datos `UiState` correspondiente:
 
-| Screen | UiState |
+| Pantalla | Estado de la interfaz |
+
 |---|---|
-| Login | `isLoading`, `user`, `errorMessage` |
-| Ticket List | `isLoading`, `tickets`, `errorMessage` |
-| Ticket Detail | `isLoading`, `ticket`, `errorMessage`, `successMessage` |
-| Create Ticket | `isLoading`, `success`, `errorMessage` |
 
-States are exposed as `StateFlow` from the ViewModel and collected with `collectAsStateWithLifecycle()` in composables to respect the Android lifecycle.
+| Iniciar sesión | `isLoading`, `user`, `errorMessage` |
 
----
+| Lista de tickets | `isLoading`, `tickets`, `errorMessage` |
 
-## 8. Mock Data
+| Detalles del ticket | `isLoading`, `ticket`, `errorMessage`, `successMessage` |
 
-`MockData.kt` contains 10 realistic tickets covering all categories and priorities. Data represents real Panini/FIFA 2026 scenarios: distribution delays, inventory shortages, quality defects, logistics losses, and provider contract issues.
-
----
-
-## 9. API Contracts
-
-Defined in `/contracts/tickets-api.yaml` (OpenAPI 3.0.3). Contracts cover all five endpoints the mobile app would consume:
-
-- `POST /auth/login`
-- `GET /tickets`
-- `POST /tickets`
-- `GET /tickets/{id}`
-- `PATCH /tickets/{id}/status`
-- `PATCH /tickets/{id}/priority`
-
----
-
-## 10. Future Evolution
-
-- **DI framework**: Replace `AppContainer` with Hilt when the project grows beyond 2–3 developers.
-- **Remote Feature Flags**: Wire `FeatureFlags` to Firebase Remote Config without changing call sites.
-- **Pagination**: `getTickets()` can accept `page` and `pageSize` parameters — the `LazyColumn` in the list screen is already prepared for incremental loading.
-- **Offline support**: Add a Room database layer between the repository and the API, following the same pattern used in the unaroom-android reference project.
+| Crear ticket

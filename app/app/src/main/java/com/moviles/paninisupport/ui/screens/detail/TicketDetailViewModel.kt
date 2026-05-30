@@ -35,8 +35,8 @@ class TicketDetailViewModel(
     private fun loadTicket() {
         viewModelScope.launch {
             when (val result = ticketRepository.getTicketById(ticketId)) {
-                is ApiResult.Success -> _uiState.value = TicketDetailUiState(ticket = result.data)
-                is ApiResult.Error -> _uiState.value = TicketDetailUiState(errorMessage = result.message)
+                is ApiResult.Success -> _uiState.value = TicketDetailUiState(isLoading = false, ticket = result.data)
+                is ApiResult.Error -> _uiState.value = TicketDetailUiState(isLoading = false, errorMessage = result.message)
             }
         }
     }
